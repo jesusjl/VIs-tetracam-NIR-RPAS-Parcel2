@@ -1,0 +1,490 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+# required libraries
+
+library("RStoolbox")
+library("raster")
+library("rgdal")
+library("ggplot2")
+library("SDMTools")
+
+```
+
+
+```{r}
+# load tif using stack function instead raster
+
+TTC08335_modified.stack <- stack("../6_qgis/input/TTC08335_modified.tif")
+class(TTC08335_modified.stack)
+
+```
+
+
+```{r}
+# load parcela 1
+library(rgeos)
+
+parcelas <- readOGR("../6_qgis/input/alamala.kml", "alamala")[0]
+nrowdim <- dim(parcelas@data)
+parcelas@data$id <- c(rep(1:nrowdim))
+parcela2 <- subset(parcelas, parcelas@data$id %in% c(3,4))
+p2.centroid.df <- as.data.frame(gCentroid(parcela2, byid = TRUE)) # extract to label parcels
+# p2.21  <- gCentroid(parcela2, byid = TRUE)[1,]
+# p2.22  <- gCentroid(parcela2, byid = TRUE)[2,]
+
+class(parcela2)
+plot(parcela2)
+```
+
+
+```{r}
+parcela2.df <- fortify(parcela2) # to plot with ggplot
+head(parcela2.df)
+```
+
+
+```{r}
+
+
+# Set all pixels to NA, where bands are 0 (remove black background)
+# Check if results are affected
+# instead use crop and mask together (ver más adelante)
+
+TTC08335_modified.stack[TTC08335_modified.stack[,] == 0] <- NA
+
+parcela2.df
+
+# plot scene using ggRGB (from ggplot and RStoolbox)
+ggRGB(TTC08335_modified.stack, r = 1, g = 2, b = 3, maxpixels = 2e+05, stretch="none", geom_raster = TRUE) + 
+    geom_path(data = parcela2.df, aes(x = long, y = lat, group = group), size = 1, col="#fbae3b") +
+    geom_text(data = as.data.frame(p2.centroid.df), aes(label = c("2.1", "2.2") ,y = y, x = x), colour = "white")+ 
+    coord_equal() +
+    theme_bw()
+```
+
+
+
+```{r}
+ggsave("figures/parcela2.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+
+
+Extraemos las parcelas
+
+```{r}
+# crop and mask whole area
+ TTC08335_modified.stack_p2 <- crop(mask(TTC08335_modified.stack, parcela2),parcela2)
+
+```
+
+
+
+```{r}
+
+# crop parcela 2.1
+
+parcela21 <- subset(parcelas, parcelas@data$id %in% c(3))
+TTC08335_modified.stack_p21 <- crop(mask(TTC08335_modified.stack, parcela21), parcela21)
+ 
+# crop parcela 2.2
+parcela22 <- subset(parcelas, parcelas@data$id %in% c(4))
+
+TTC08335_modified.stack_p22 <- crop(mask(TTC08335_modified.stack, parcela22), parcela22)
+
+```
+
+
+Plot parcels
+
+```{r}
+
+ggRGB(TTC08335_modified.stack_p2, r = 1, g = 2, b = 3) + 
+    geom_path(data = parcela2.df, aes(x = long, y = lat, group = group), size = 1, col="#fbae3b") +
+    theme_bw()
+```
+
+
+Plot parcel 2.1
+
+```{r}
+p21 <- subset(parcela2.df, id == 2)
+
+ggRGB(TTC08335_modified.stack_p21, r = 1, g = 2, b = 3) + 
+    geom_path(data = p21, aes(x = long, y = lat, group = group), size = 1, col="#fbae3b") +
+    labs(x="", y="", title="Parcela 2.1") +
+   # coord_equal(ylim = c(min(p11$lat), max(p11$lat)), xlim= c(min(p11$long), max(p11$long))) +
+    theme_bw() + 
+    theme(plot.title = element_text(lineheight=.8, face="bold", vjust=1, hjust = 0.5))  # make title bold and add spac
+
+```
+```{r}
+ggsave("figures/parcela2_1.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+
+Plot parcel 2.2
+
+```{r}
+
+p22 <- subset(parcela2.df, id == 4)
+
+
+ggRGB(TTC08335_modified.stack_p22, r = 1, g = 2, b = 3) + 
+    geom_path(data = p22, aes(x = long, y = lat, group = group), size = 1, col="#fbae3b") +
+    labs(x="", y="", title="Parcela 2.2")+
+    #coord_equal(ylim = c(min(p12$lat), max(p12$lat)), xlim= c(min(p22$long), max(p22$long))) +
+    theme_bw() + 
+    theme(plot.title = element_text(lineheight=.8, face="bold", vjust=1, hjust = 0.5))  # make title bold and add spac
+
+```
+```{r}
+ggsave("figures/parcela2_2.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+
+
+Calculate VIs
+
+```{r}
+
+p21.VIs <- spectralIndices(TTC08335_modified.stack_p21, green=3, red=2,  nir =1, indices=c("NDVI", "MSAVI2", "GNDVI"))
+breaks <- seq(0, 1, by=0.01)
+
+plot(p21.VIs)
+```
+
+
+Plot VI one by one
+
+
+NDVI Parcela 1.1
+
+```{r}
+cols <- colorRampPalette(c("red", "yellow", "lightgreen"))(length(breaks)-1)
+ggR(p21.VIs$NDVI, geom_raster = TRUE) +
+  labs(x="", y="", title= "Parcela 2.1") +
+  scale_fill_gradientn(colours=cols,  na.value=NA) + 
+  theme_bw() +
+  theme(plot.title = element_text(lineheight=.8, face="bold", vjust=1, hjust = 0.5))
+
+```
+
+
+And save
+
+```{r}
+ggsave("figures/parcela2_1_NDVI.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+
+MSAVI2 Parcela 2.1
+
+```{r}
+cols <- colorRampPalette(c("red", "yellow", "lightgreen"))(length(breaks)-1)
+ggR(p21.VIs$MSAVI2, geom_raster = TRUE) +
+  labs(x="", y="", title= "Parcela 2.1") +
+  scale_fill_gradientn(colours=cols,  na.value=NA) + 
+  theme_bw() +
+  theme(plot.title = element_text(lineheight=.8, face="bold", vjust=1, hjust = 0.5))
+
+```
+And save
+
+```{r}
+ggsave("figures/parcela2_1_MSAVI2.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+
+GNDVI Parcela 1.1
+
+```{r}
+cols <- colorRampPalette(c("red", "yellow", "lightgreen"))(length(breaks)-1)
+ggR(p21.VIs$GNDVI, geom_raster = TRUE) +
+  labs(x="", y="", title= "Parcela 2.1") +
+  scale_fill_gradientn(colours=cols,  na.value=NA) + 
+  theme_bw() +
+  theme(plot.title = element_text(lineheight=.8, face="bold", vjust=1, hjust = 0.5))
+
+```
+```{r}
+ggsave("figures/parcela2_1_GNDVI.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+
+Again with p1.2
+
+```{r}
+p22.VIs <- spectralIndices(TTC08335_modified.stack_p22, green=3, red=2,  nir =1, indices=c("NDVI", "MSAVI2", "GNDVI"))
+breaks <- seq(0, 1, by=0.01)
+
+plot(p22.VIs)
+```
+
+```{r}
+ggR(p22.VIs$NDVI, geom_raster = TRUE) +
+  labs(x="", y="", title="Parcela 2.2") +
+  scale_fill_gradientn(colours=cols,  na.value=NA) + 
+  theme_bw() +
+  theme(plot.title = element_text(lineheight=.8, face="bold", vjust=1, hjust = 0.5))  # make title bold and add spac
+
+```
+
+
+```{r}
+ggsave("figures/parcela2_2_NDVI.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+MSAVI2 Parcela 2.2
+
+```{r}
+ggR(p22.VIs$MSAVI2, geom_raster = TRUE) +
+  labs(x="", y="", title="Parcela 2.2") +
+  scale_fill_gradientn(colours=cols,  na.value=NA) + 
+  theme_bw() +
+  theme(plot.title = element_text(lineheight=.8, face="bold", vjust=1, hjust = 0.5))  # make title bold and add spac
+
+```
+
+Save
+
+```{r}
+ggsave("figures/parcela2_2_MSAVI2.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+x`
+GNDVI Parcela 2.2
+
+```{r}
+ggR(p22.VIs$GNDVI, geom_raster = TRUE) +
+  labs(x="", y="", title="Parcela 2.2") +
+  scale_fill_gradientn(colours=cols,  na.value=NA) + 
+  theme_bw() +
+  theme(plot.title = element_text(lineheight=.8, face="bold", vjust=1, hjust = 0.5))  # make title bold and add spac
+
+```
+
+
+Save
+
+```{r}
+ggsave("figures/parcela2_2_GNDVI.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+
+### Exploratory data analysis of Vegetation Indices
+
+
+Bind indices in a whole dataframe
+
+```{r}
+library(dplyr)
+library(plyr) # Tools for Splitting, Applying and Combining Data
+
+raster_to_df <- function(x) {
+  stack(as.data.frame(x))
+} # convert raster to dataframe
+
+
+l<- list(p21 = p21.VIs, p22 = p22.VIs)
+
+l.df <- lapply(X = l, FUN = raster_to_df) # list of data frames
+
+
+l.df.VIs <- ldply(l.df ,rbind) # Split list, apply function, and return results in a data frame.
+
+
+```
+
+
+
+Plot NDVI box-plot
+
+```{r}
+l.df.VIs.NDVI <-  subset(l.df.VIs, ind == "NDVI" )
+ggplot(l.df.VIs.NDVI) + 
+  geom_boxplot(aes(x = .id, y = values, colour=.id)) +
+  facet_grid(. ~ ind) +
+  theme_bw()
+```
+
+
+
+```{r}
+ggsave("figures/boxplot_p21_p22_NDVI.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+
+
+Plot MSAVI2 box-plot
+
+
+```{r}
+l.df.VIs.MSAVI2 <-  subset(l.df.VIs, ind == "MSAVI2" )
+ggplot(l.df.VIs.MSAVI2) + 
+  geom_boxplot(aes(x = .id, y = values, colour=.id)) +
+  facet_grid(. ~ ind) +
+  theme_bw()
+```
+
+```{r}
+ggsave("figures/boxplot_p21_p22_MSAVI2.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+
+Plot GNDVI box-plot
+
+
+```{r}
+l.df.VIs.GNDVI <-  subset(l.df.VIs, ind == "GNDVI" )
+ggplot(l.df.VIs.GNDVI) + 
+  geom_boxplot(aes(x = .id, y = values, colour=.id)) +
+  facet_grid(. ~ ind) +
+  theme_bw()
+```
+```{r}
+ggsave("figures/boxplot_p21_p22_GNDVI.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+Plot NDVI, MSAVI2, GNDVI histogram
+
+
+```{r}
+l.df.VIs.NDVI$title <- "NDVI" # fake
+
+
+ggplot(l.df.VIs.NDVI, aes(x = values, colour=.id)) + 
+  geom_freqpoly(aes( y=(..count..)/sum(..count..)), binwidth = 0.005) +
+  facet_wrap(~title) +
+  scale_y_continuous(labels=scales::percent) +
+  ylab("relative frequencies") + 
+  theme_bw()
+```
+
+```{r}
+ggsave("figures/histo_p21_p22_NDVI.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+```{r}
+l.df.VIs.GNDVI$title <- "MSAVI2" # fake
+
+
+ggplot(l.df.VIs.GNDVI, aes(x = values, colour=.id)) + 
+  geom_freqpoly(aes( y=(..count..)/sum(..count..)), binwidth = 0.005) +
+  facet_wrap(~title) +
+  scale_y_continuous(labels=scales::percent) +
+  ylab("relative frequencies") + 
+  theme_bw()
+```
+
+```{r}
+ggsave("figures/histo_p21_p22_MSAVI2.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+```{r}
+l.df.VIs.GNDVI$title <- "GNDVI" # fake
+
+
+ggplot(l.df.VIs.GNDVI, aes(x = values, colour=.id)) + 
+  geom_freqpoly(aes( y=(..count..)/sum(..count..)), binwidth = 0.005) +
+  facet_wrap(~title) +
+  scale_y_continuous(labels=scales::percent) +
+  ylab("relative frequencies") + 
+  theme_bw()
+```
+
+```{r}
+ggsave("figures/histo_p21_p22_GNDVI.png", 
+ plot = last_plot(), # or give ggplot object name as in myPlot,
+ width = 5, height = 5, 
+ units = "in", # other options c("in", "cm", "mm"), 
+ dpi = 300)
+```
+
+# Analysis
+
+
+```{r}
+library('dplyr')
+l.df.VIs %>% group_by(ind) %>% summarise_at("values", funs(mean, max, sd), na.rm = TRUE)
+
+```
+
+```{r}
+library('dplyr')
+l.df.VIs %>% group_by(ind, .id) %>% summarise_at("values", funs(mean, max, sd), na.rm = TRUE)
+```
+
+
+```{r}
+saveRDS(l.df.VIs, file = "VIP2.rds")
+```
+
+
+```{r}
+# save p2 layers
+writeRaster(stack(p21.VIs), paste("p21_", names(p21.VIs), sep = ''), bylayer=TRUE, format='GTiff')
+writeRaster(stack(p22.VIs), paste("p22_", names(p22.VIs), sep = ''), bylayer=TRUE, format='GTiff')
+
+```
